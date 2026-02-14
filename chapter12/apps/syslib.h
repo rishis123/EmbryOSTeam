@@ -13,6 +13,8 @@ extern int user_read(int file, int off, void *dst, int n);
 extern int user_write(int file, int off, const void *src, int n);
 extern int user_size(int file);
 extern void user_delete(int file);
+extern uint64_t user_gettime(void);
+
 
 static inline void user_delay(int ms) {  // pseudo system call
     user_yield();

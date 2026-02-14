@@ -3,7 +3,7 @@
     .section .text
     .align 2
     .globl user_exit, user_yield, user_spawn, user_put, user_get
-    .globl user_create, user_read, user_write, user_size, user_delete
+    .globl user_create, user_read, user_write, user_size, user_delete, user_gettime
 
     # void user_exit(void);
 user_exit:
@@ -63,5 +63,12 @@ user_size:
     # void user_delete(int file)
 user_delete:
     li      a7, SYS_DELETE
+    ecall
+    ret
+
+
+    # uint64_t user_gettime(void)
+user_gettime:
+    li      a7, SYS_GETTIME
     ecall
     ret
