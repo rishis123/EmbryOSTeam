@@ -8,3 +8,4 @@
 #define SYS_WRITE  7     // write a file
 #define SYS_SIZE   8     // get the size of a file
 #define SYS_DELETE 9     // delete a file
+#define SYS_GETTIME 10 // get time in nanoseconds since boot

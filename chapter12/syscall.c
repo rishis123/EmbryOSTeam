@@ -48,6 +48,18 @@ void syscall_handler(struct trap_frame *tf) {
         L1(L_NORM, L_USER_DELETE, tf->a0);
         flat_delete(&flat_fs, tf->a0);
         break;
+    case SYS_GETTIME: {
+        // Used Github Copilot to help understand why the following two declarations are needed.
+        extern uint64_t mtime_get(void);
+        extern uint64_t time_base;
+
+        // gives us current time in ticks since boot.
+        uint64_t ticks = mtime_get(); 
+        // Used Github Copilot to understand what a trap frame is (holder for CPU registers). a0 is return register here.
+        tf->a0 = (ticks * 1000000000ULL) / time_base;
+        // Computation -> ticks * 1,000,000,000 / ticks per second = number of nanoseconds since boot. Used Copilot advice regarding ULL to avoid overflow/compiler issues.
+        break;
+    }
     case 56: case 63: case 64: case 93: case 214:
         selfie_syscall_handler(tf);
         break;
