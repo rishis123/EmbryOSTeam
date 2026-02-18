@@ -21,6 +21,7 @@
 #include "die.h"
 #include "string.h"
 #include "app_info.h"
+#include "selfie.h"
 #include "ctx.h"
 #include "trap.h"
 #include "hart.h"
