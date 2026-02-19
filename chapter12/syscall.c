@@ -63,19 +63,21 @@ void syscall_handler(struct trap_frame *tf)
         // Computation -> ticks * 1,000,000,000 / ticks per second = number of nanoseconds since boot. Used Copilot advice regarding ULL to avoid overflow/compiler issues.
         break;
     case SYS_SLEEP:
-        // compute sleep time and make it sleep
+        // compute sleep time and make process sleep
         uint64_t deadline = tf->a0;
 
         if (user_gettime() >= deadline)
         {
             break; // break if user_gettime() >= deadline
         }
+        else
+        {
+            self->sleep_deadline = deadline;
+            self->sleeping = 1;
 
-        self->sleep_deadline = deadline;
-        self->sleeping = 1;
-
-        sched_yield();
-        break;
+            sched_sleep(self);
+            break;
+        }
     case 56:
     case 63:
     case 64:

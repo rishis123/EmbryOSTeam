@@ -7,6 +7,11 @@ struct pcb *sleep_queue = NULL;
 
 void sched_resume(struct pcb *pcb) { proc_enqueue(&run_queue[0], pcb); }
 
+void sched_sleep(struct pcb *pcb)
+{
+    proc_enqueue(&sleep_queue, pcb);
+}
+
 void sched_block(struct pcb *old)
 {
     int p = 0; // first find highest priority process
@@ -37,6 +42,40 @@ void sched_run(int executable, struct rect area, void *args, int size)
 
 void sched_yield(void)
 {
+    uint64_t now = (mtime_get() * 1000000000ULL) / time_base;
+
+    struct pcb *prev = sleep_queue;
+    if (sleep_queue != NULL)
+    {
+        struct pcb *curr = sleep_queue->next;
+        do
+        {
+            if (curr->sleeping && curr->sleep_deadline <= now)
+            {
+
+                curr->sleeping = 0;
+
+                // Remove from sleep queue
+                prev->next = curr->next;
+
+                if (curr == sleep_queue)
+                    sleep_queue = (curr->next == curr) ? NULL : prev;
+
+                struct pcb *to_wake = curr;
+                curr = curr->next;
+
+                // Put back on run queue
+                sched_resume(to_wake);
+            }
+            else
+            {
+                prev = curr;
+                curr = curr->next;
+            }
+
+        } while (sleep_queue != NULL && curr != sleep_queue->next);
+    }
+
     struct pcb *current = sched_self();
     if (current->executable > 0)
     { // idle loop doesn't yield at interrupts
