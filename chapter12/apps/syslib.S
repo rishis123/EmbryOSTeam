@@ -72,3 +72,9 @@ user_gettime:
     li      a7, SYS_GETTIME
     ecall
     ret
+
+    # void user_sleep(uint64_t deadline)
+user_sleep:
+    li      a7, SYS_SLEEP
+    ecall
+    ret
