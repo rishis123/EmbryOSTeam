@@ -211,6 +211,10 @@ static void get_time_components(uint64_t elapsed, int *mins, int *secs)
 void main(void)
 {
     // Builds default stopwatch (running and in focus as default
+
+    // code to test for stopwatch
+    // user_sleep(user_gettime() + 30000000000);
+
     struct stopwatch sw;
     sw.curr_running = 1;
     sw.has_focus = 1;
