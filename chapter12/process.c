@@ -26,6 +26,7 @@ void proc_put(struct pcb *pcb, int col, int row, cell_t cell)
 
 void proc_enqueue(struct pcb **q, struct pcb *pcb)
 {
+    //if queue is empty.
     if (*q == 0)
         pcb->next = pcb; // head == tail
     else

@@ -83,6 +83,7 @@ void syscall_handler(struct trap_frame *tf)
             self->sleep_deadline = deadline;
             self->sleeping = 1;
 
+            // AI used to better understand requirements here
             sched_sleep(self); // sleep the current process
             sched_block(self); // force context switch from current process
             break;
