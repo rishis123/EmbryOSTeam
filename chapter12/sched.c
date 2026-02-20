@@ -14,30 +14,33 @@ void sched_sleep(struct pcb *pcb)
 
 void sched_block(struct pcb *old)
 {
-    uint64_t now = (mtime_get() * 1000000000ULL) / time_base;
+    uint64_t curr_time = (mtime_get() * 1000000000ULL) / time_base;
 
     struct pcb *prev = sleep_queue;
+    // prev is the last element of the sleep_queue
     if (sleep_queue != NULL)
     {
         struct pcb *curr = sleep_queue->next;
         do
         {
-            if (curr->sleeping && curr->sleep_deadline <= now)
+            if (curr->sleeping && curr->sleep_deadline <= curr_time)
             {
-
+                // need to wake up curr
                 curr->sleeping = 0;
 
-                // Remove from sleep queue
+                // remove curr from sleep queue
                 prev->next = curr->next;
 
                 if (curr == sleep_queue)
+                {
                     sleep_queue = (curr->next == curr) ? NULL : prev;
+                }
 
-                struct pcb *to_wake = curr;
+                struct pcb *curr_wake = curr;
                 curr = curr->next;
 
-                // Put back on run queue
-                sched_resume(to_wake);
+                // Put (previous) curr back on run queue
+                sched_resume(curr_wake);
             }
             else
             {

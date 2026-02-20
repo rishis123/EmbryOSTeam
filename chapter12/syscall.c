@@ -63,19 +63,16 @@ void syscall_handler(struct trap_frame *tf)
         // Computation -> ticks * 1,000,000,000 / ticks per second = number of nanoseconds since boot. Used Copilot advice regarding ULL to avoid overflow/compiler issues.
         break;
     case SYS_SLEEP:
-        // compute sleep time and make process sleep
         uint64_t deadline = tf->a0;
 
-        // Used Github Copilot to help understand why the following two declarations are needed.
         extern uint64_t mtime_get(void);
         extern uint64_t time_base;
 
-        // gives us current time in ticks since boot.
         uint64_t curr_time = mtime_get();
         uint64_t curr_time_ns;
-        // Used Github Copilot to understand what a trap frame is (holder for CPU registers). a0 is return register here.
+
         curr_time_ns = (curr_time * 1000000000ULL) / time_base;
-        // Computation -> ticks * 1,000,000,000 / ticks per second = number of nanoseconds since boot. Used Copilot advice regarding ULL to avoid overflow/compiler issues.
+        // all above is the same as user_gettime()
 
         if (curr_time_ns >= deadline)
         {
@@ -86,8 +83,8 @@ void syscall_handler(struct trap_frame *tf)
             self->sleep_deadline = deadline;
             self->sleeping = 1;
 
-            sched_sleep(self);
-            sched_block(self);
+            sched_sleep(self); // sleep the current process
+            sched_block(self); // force context switch from current process
             break;
         }
     case 56:
