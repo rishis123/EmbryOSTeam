@@ -8,6 +8,9 @@ void reap_zombies(void);
 // Put the given process back on the run queue
 void sched_resume(struct pcb *pcb);
 
+// sleep the given process
+void sched_sleep(struct pcb *pcb);
+
 // Find a new process to run.
 void sched_block(struct pcb *old);
 
@@ -25,13 +28,15 @@ void sched_idle();
 void sched_exit(void);
 
 // Set 'self', which is maintained in the tp register
-static inline void sched_set_self(struct pcb *ptr) {
-    asm volatile ("mv tp, %0" :: "r"(ptr));
+static inline void sched_set_self(struct pcb *ptr)
+{
+    asm volatile("mv tp, %0" ::"r"(ptr));
 }
 
 // Get 'self' from the tp register
-static inline struct pcb *sched_self(void) {
+static inline struct pcb *sched_self(void)
+{
     void *val;
-    asm volatile ("mv %0, tp" : "=r"(val));
+    asm volatile("mv %0, tp" : "=r"(val));
     return val;
 }

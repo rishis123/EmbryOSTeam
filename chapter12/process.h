@@ -9,25 +9,30 @@
 #define KBD_BUF_SIZE 64
 
 // Each process only gets to write in a particular rectangle of the screen
-struct rect {
-    int col, row;   // top-left corner on global screen
-    int wd, ht;     // width and height
+struct rect
+{
+    int col, row; // top-left corner on global screen
+    int wd, ht;   // width and height
 };
 
 // Process Control Block: contains information for a particular process
-struct pcb {
-    struct pcb *next, *io_next;     // queue management
-    int executable;                 // file containing executable
-    struct rect area;               // allowed screen region
-    int16_t kbd_buf[KBD_BUF_SIZE];  // circular keyboard buffer
-    int kbd_head, kbd_size;         // meta data for kbd buffer
-    unsigned int kbd_waiting : 1;   // waiting for input
-    unsigned int kbd_warm : 1;      // first get() gets focus
-    char *args; int size;           // arguments buffer
-    void *sp;             // kernel sp saved on context switch
-    char *base;           // page table
-    struct selfie selfie; // selfie process state
-    struct hart *hart;    // the hart the process is running on
+struct pcb
+{
+    struct pcb *next, *io_next;    // queue management
+    int executable;                // file containing executable
+    struct rect area;              // allowed screen region
+    int16_t kbd_buf[KBD_BUF_SIZE]; // circular keyboard buffer
+    int kbd_head, kbd_size;        // meta data for kbd buffer
+    unsigned int kbd_waiting : 1;  // waiting for input
+    unsigned int kbd_warm : 1;     // first get() gets focus
+    char *args;
+    int size;                // arguments buffer
+    void *sp;                // kernel sp saved on context switch
+    char *base;              // page table
+    struct selfie selfie;    // selfie process state
+    struct hart *hart;       // the hart the process is running on
+    int sleeping;            // whether process is sleeping, 0 is active, 1 is sleep
+    uint64_t sleep_deadline; // sleep deadline of process
 };
 
 // Allocate a new PCB

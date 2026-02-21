@@ -14,10 +14,14 @@ extern int user_write(int file, int off, const void *src, int n);
 extern int user_size(int file);
 extern void user_delete(int file);
 extern uint64_t user_gettime(void);
+extern void user_sleep(uint64_t deadline);
 
-
-static inline void user_delay(int ms) {  // pseudo system call
-    user_yield();
-    while (--ms > 0)
-        for (volatile int i = 0; i < DELAY_MS; i++) ;
+static inline void user_delay(int ms)
+{ // pseudo system call
+    if (--ms <= 0)
+    {
+        return;
+    }
+    user_sleep(user_gettime() + (ms * 1000000));
+    return;
 }
