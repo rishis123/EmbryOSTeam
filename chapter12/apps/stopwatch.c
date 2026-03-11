@@ -297,5 +297,9 @@ void main(void)
             get_time_components(get_elapsed(&sw), &mins, &secs);
             draw_stopwatch_gui(&sw, mins, secs);
         }
+
+        if (c == 'f') {
+            user_sleep(user_gettime()+5000000000);
+        }
     }
 }
