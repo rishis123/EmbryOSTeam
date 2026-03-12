@@ -1,5 +1,7 @@
 #include "syslib.h"
 #include "thread.h"
+// to access ctx start and switch.
+#include "../shared/ctx.h"
 #include <stddef.h> 
 
 
@@ -20,7 +22,7 @@ struct thread {
     thread_state_t state;       // current blocking state
 
     uint64_t     wake_time;     // for THREAD_SLEEPING: deadline in ns
-    int          input_result;  // for THREAD_WAITING_INPUT: delivered value
+    int          input_result;  // for THREAD_WAITING_INPUT: delivered value. Stores what key is pressed, like to move a player in game.c. 
 
     struct sema *waiting_on;    // for THREAD_WAITING_SEMA: which semaphore
 
@@ -28,6 +30,10 @@ struct thread {
 
     void        (*func)(void *);   // the function the thread executes
     void        *arg;              // the arguments to the function
+
+    int          started;          // 0 if never run, 1 after first ctx_start. Tracks whether thread has ever been dispatched before and maybe has just been switched out of.
+    //Logic: everytime a thread wants to know what key is pressed, it calls thread_get(), then it goes to the input queue and some other thread starts running, 
+    //then when the user presses a key, schedule internally uses user_get(0) to tell the thread and wake it back up with the information of what key was pressed.
 
 };
 
@@ -58,8 +64,9 @@ void thread_create(void (*f)(void *), void *arg, unsigned int stack_size) {
     //set to top of stack (base + size) because stacks go downward
     
     // Define this thread as runnable, and append to run_queue.
-    tcb->state = THREAD_RUNNABLE;
-    tcb->next  = NULL;
+    tcb->state   = THREAD_RUNNABLE;
+    tcb->started = 0;
+    tcb->next    = NULL;
 
     if (run_queue == NULL) {
         run_queue = tcb;
@@ -122,6 +129,8 @@ static void schedule(void) {
             if (input == input_queue_tail) {
                 input_queue_tail = prev;
             }
+            // Deliver the keypress so thread_get() can return it
+            input->input_result = result;
             // Append to run_queue
             input->state = THREAD_RUNNABLE;
             input->next = NULL;
@@ -138,14 +147,48 @@ static void schedule(void) {
         input = next;
     }
 
+    // Dispatch: pop the head of run_queue and switch to it
+    struct thread *to_run = run_queue;
+    if (to_run == NULL) return;
+
+    run_queue = to_run->next;
+    if (run_queue == NULL) run_queue_tail = NULL;
+    to_run->next = NULL;
+
+    struct thread *old = current_thread;
+    current_thread = to_run;
+
+    // This actually starts or wakes back up the thread. Needs the old stack pointer and the new stack pointer.
+    if (to_run->started == 0) {
+        to_run->started = 1;
+        if (old == NULL) {
+            //The case fo the very first thread ever to start, just pass in the current thread = to run stack pointer for old & new 
+            ctx_start(&current_thread->sp, to_run->sp);
+        } else {
+            //Starting a new thread but there were ones before it.
+            ctx_start(&old->sp, to_run->sp);
+        }
+    } else {
+        // has already been started now just waking it up.
+        ctx_switch(&old->sp, to_run->sp);
+    }
 }
 
 
 
 void thread_init() {
+    run_queue        = NULL;
+    run_queue_tail   = NULL;
+    sleep_queue      = NULL;
+    sleep_queue_tail = NULL;
+    input_queue      = NULL;
+    input_queue_tail = NULL;
+    current_thread   = NULL;
 
 
 }
+
+
 void thread_yield();
 void thread_sleep(uint64_t ns) {
 
