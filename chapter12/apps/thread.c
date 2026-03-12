@@ -70,10 +70,80 @@ void thread_create(void (*f)(void *), void *arg, unsigned int stack_size) {
 
 }
 
+static void schedule(void) {
+    // Check the sleep queue — iterate sleep_queue, call user_gettime(), and move any thread whose wake_time has passed back to run_queue.
+    struct thread *prev = NULL;
+    struct thread *sleeping = sleep_queue;
+    while (sleeping != NULL) {
+        struct thread *next = sleeping->next;
+        if (user_gettime() >= sleeping->wake_time) {
+            // Remove from sleep_queue
+            if (prev == NULL) {
+                sleep_queue = next;
+            } else {
+                prev->next = next;
+            }
+            if (sleeping == sleep_queue_tail) {
+                sleep_queue_tail = prev;
+            }
+            // Append to run_queue
+            sleeping->state = THREAD_RUNNABLE;
+            sleeping->next = NULL;
+            if (run_queue == NULL) {
+                run_queue = sleeping;
+            } else {
+                run_queue_tail->next = sleeping;
+            }
+            run_queue_tail = sleeping;
+        } else {
+            prev = sleeping;
+        }
+        sleeping = next;
+    }
+
+
+    //Logic for input_quue, moving inputs that aren't' blocked into runnable queue
+    prev = NULL; 
+    // move prev from earlier
+    struct thread *input = input_queue;
+
+    while (input != NULL) {
+        struct thread *next = input->next;
+        // see if blocked, -1 if not blocked. process keeps running since 0.
+        int result = user_get(0);
+        // not blocked case
+        if (result != -1) {
+            // Remove from input_queue
+            if (prev == NULL) {
+                input_queue = next;
+            } else {
+                prev->next = next;
+            }
+            if (input == input_queue_tail) {
+                input_queue_tail = prev;
+            }
+            // Append to run_queue
+            input->state = THREAD_RUNNABLE;
+            input->next = NULL;
+            if (run_queue == NULL) {
+                run_queue = input;
+            } else {
+                run_queue_tail->next = input;
+            }
+            run_queue_tail = input;
+        } else {
+            // move both pointers along in else case.
+            prev = input;
+        }
+        input = next;
+    }
+
+}
 
 
 
 void thread_init() {
+
 
 }
 void thread_yield();
