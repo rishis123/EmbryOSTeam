@@ -1,6 +1,7 @@
 struct sema {
+    //count of n = the next n calls/accesses from threads can pass through without blocking. e..g., for mutex the max is 1.
     unsigned int   count;
-    struct thread *waiters;   // queue of THREAD_WAITING_SEMA threads
+    struct thread *waiters;   // queue of THREAD_WAITING_SEMA threads. if they don't get sema access right away they wait here till count is high enough.
 };
 void thread_init();
 void thread_create(void (*f)(void *), void *arg, unsigned int stack_size);
