@@ -44,7 +44,8 @@ struct thread *sleep_queue_tail;  // tail of sleep_queue
 struct thread *input_queue;       // list of THREAD_WAITING_INPUT threads
 struct thread *input_queue_tail;  // tail of input_queue
 struct thread *current_thread;    // the currently executing thread
-struct thread *graveyard; // thread waiting to be freed. only one thread can exit at a time.
+struct thread *zombie_queue;      // list of exited threads waiting to be freed
+struct thread *zombie_queue_tail;
 
 void thread_create(void (*f)(void *), void *arg, unsigned int stack_size) {
     //Step 1: Allocate a new TCB. I.e., make a thread struct tracking thread state.
@@ -61,7 +62,7 @@ void thread_create(void (*f)(void *), void *arg, unsigned int stack_size) {
     tcb->arg = arg;
 
     //Step 4: Set up new stack so ctx_start can bootstrap
-    tcb->sp = (void *)((char *)stack_base + stack_size); // 
+    tcb->sp = (void *)((char *)stack_base + stack_size); 
     //set to top of stack (base + size) because stacks go downward
     
     // Define this thread as runnable, and append to run_queue.
@@ -80,12 +81,28 @@ void thread_create(void (*f)(void *), void *arg, unsigned int stack_size) {
 
 static void schedule(void) {
 
-    //First step is because this is a running thread, to trash the graveyard (cannot free itself from the dead thread)
-    if (graveyard != NULL) {
-        //free stack and control block
-        free(graveyard->stack_base);
-        free(graveyard);
-        graveyard = NULL;
+    // Drain the zombie queue, but skip any entry that is still the current_thread
+    // (a dying thread calls schedule() before switching away — freeing its own
+    // stack before ctx_switch would be a use-after-free).
+    struct thread *z = zombie_queue;
+    zombie_queue = NULL;
+    zombie_queue_tail = NULL;
+    while (z != NULL) {
+        struct thread *znext = z->next;
+        if (z == current_thread) {
+            // Still on this thread's stack — re-enqueue and free after switch.
+            z->next = NULL;
+            if (zombie_queue == NULL) {
+                zombie_queue = z;
+            } else {
+                zombie_queue_tail->next = z;
+            }
+            zombie_queue_tail = z;
+        } else {
+            free(z->stack_base);
+            free(z);
+        }
+        z = znext;
     }
 
 
@@ -164,13 +181,8 @@ static void schedule(void) {
     // This actually starts or wakes back up the thread. Needs the old stack pointer and the new stack pointer.
     if (to_run->started == 0) {
         to_run->started = 1;
-        if (old == NULL) {
-            //The case fo the very first thread ever to start, just pass in the current thread = to run stack pointer for old & new 
-            ctx_start(&current_thread->sp, to_run->sp);
-        } else {
-            //Starting a new thread but there were ones before it.
-            ctx_start(&old->sp, to_run->sp);
-        }
+        // ctx_start saves old->sp (main TCB's sp is fine to clobber if it's exiting)
+        ctx_start(&old->sp, to_run->sp);
     } else {
         // has already been started now just waking it up.
         ctx_switch(&old->sp, to_run->sp);
@@ -178,7 +190,7 @@ static void schedule(void) {
 }
 
 
-//Misnomer -- initializes thread subsystem, not an actual thread.
+//initializes thread subsystem and a calling thread (first one).
 void thread_init() {
     run_queue        = NULL;
     run_queue_tail   = NULL;
@@ -186,8 +198,20 @@ void thread_init() {
     sleep_queue_tail = NULL;
     input_queue      = NULL;
     input_queue_tail = NULL;
-    current_thread   = NULL;
-    graveyard = NULL;
+    zombie_queue      = NULL;
+    zombie_queue_tail = NULL;
+
+    // Per the slides: allocate a TCB for the calling (main) thread.
+    // The process already has a stack, so stack_base stays NULL (never freed).
+    struct thread *main_tcb = malloc(sizeof(struct thread));
+    main_tcb->stack_base = NULL;
+    main_tcb->stack_size = 0;
+    main_tcb->state      = THREAD_RUNNABLE;
+    main_tcb->started    = 1;   // already running
+    main_tcb->next       = NULL;
+    main_tcb->func       = NULL;
+    main_tcb->arg        = NULL;
+    current_thread = main_tcb;
 }
 
 // Current thread yields. Remove from runnable. schedule() called to decide who goes next (the new current_thread)
@@ -250,11 +274,20 @@ int thread_get() {
 
 
 void thread_exit() {
-    //All the actual logic is cleaned up by a currently running thread, at the start of schedule.
-    graveyard = current_thread;
-    //The head of run queue gets ownership and cleans up.
+    // Per slides: if no other thread is runnable, end the process now.
+    // We cannot block here — the dying thread has nowhere to switch to.
+    if (run_queue == NULL) {
+        user_exit();
+    }
+    // Enqueue on zombie queue; the next living thread's schedule() will free it.
+    current_thread->next = NULL;
+    if (zombie_queue == NULL) {
+        zombie_queue = current_thread;
+    } else {
+        zombie_queue_tail->next = current_thread;
+    }
+    zombie_queue_tail = current_thread;
     schedule();
-
 }
 
 // Allocates new semaphore. count has initial value (# of concurrent holders). waiters is queue of threads blocked waiting for sema
