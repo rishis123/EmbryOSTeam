@@ -109,42 +109,28 @@ static void schedule(void) {
     }
 
 
-    //Logic for input_quue, moving inputs that aren't' blocked into runnable queue
-    prev = NULL; 
-    // move prev from earlier
-    struct thread *input = input_queue;
+    // Deliver one keypress to the head of the input queue.
+    // If nothing else is runnable, block with user_get(1); otherwise poll with user_get(0).
+    if (input_queue != NULL) {
 
-    while (input != NULL) {
-        struct thread *next = input->next;
-        // see if blocked, -1 if not blocked. process keeps running since 0.
-        int result = user_get(0);
-        // not blocked case
+        //Case 1: run queue is null. no threads can run, so we must wait for a key (user_get(1)) blocks till arrives
+        //Otherwise, other threads are ready so we peek without waiting, and return -1 if nothing.
+        //If any key came in, we wake the first input-waiting thread. Otherwise this block is skipped and we just run a runnable thread instead in the next block.
+        int result = (run_queue == NULL) ? user_get(1) : user_get(0);
         if (result != -1) {
-            // Remove from input_queue
-            if (prev == NULL) {
-                input_queue = next;
-            } else {
-                prev->next = next;
-            }
-            if (input == input_queue_tail) {
-                input_queue_tail = prev;
-            }
-            // Deliver the keypress so thread_get() can return it
-            input->input_result = result;
-            // Append to run_queue
-            input->state = THREAD_RUNNABLE;
-            input->next = NULL;
+            struct thread *t = input_queue;
+            input_queue = t->next;
+            if (input_queue == NULL) input_queue_tail = NULL;
+            t->input_result = result;
+            t->state = THREAD_RUNNABLE;
+            t->next = NULL;
             if (run_queue == NULL) {
-                run_queue = input;
+                run_queue = t;
             } else {
-                run_queue_tail->next = input;
+                run_queue_tail->next = t;
             }
-            run_queue_tail = input;
-        } else {
-            // move both pointers along in else case.
-            prev = input;
+            run_queue_tail = t;
         }
-        input = next;
     }
 
     // Dispatch: pop the head of run_queue and switch to it
@@ -188,18 +174,127 @@ void thread_init() {
 
 }
 
+// Current thread yields. Remove from runnable. schedule() called to decide who goes next (the new current_thread)
+void thread_yield() {
+    current_thread->state = THREAD_RUNNABLE;
+    current_thread->next = NULL;
+    if (run_queue == NULL) {
+        run_queue = current_thread;
+    } else {
+        run_queue_tail->next = current_thread;
+    }
+    run_queue_tail = current_thread;
 
-void thread_yield();
-void thread_sleep(uint64_t ns) {
-
-
+    schedule();
 }
-int thread_get();
-void thread_exit();
-struct sema *sema_create(unsigned int count);
-void sema_inc(struct sema *sema);
-void sema_dec(struct sema *sema);
-void sema_release(struct sema *sema);
+
+//Logic for the current thread to sleep.
+// ns here is the deadline in nanoseconds since boot time, till which point the calling thread is suspended.
+void thread_sleep(uint64_t ns) {
+    current_thread->state     = THREAD_SLEEPING;
+    current_thread->wake_time = user_gettime() + ns;
+
+    // INVARIANT -> SLEEP QUEUE SORTED BY DEADLINE
+    // Insert current_thread into sleep_queue sorted by wake_time
+    struct thread *prev = NULL;
+    struct thread *cur  = sleep_queue;
+    while (cur != NULL && cur->wake_time <= current_thread->wake_time) {
+        prev = cur;
+        cur  = cur->next;
+    }
+    current_thread->next = cur;
+    if (prev == NULL) {
+        sleep_queue = current_thread;
+    } else {
+        prev->next = current_thread;
+    }
+    if (cur == NULL) {
+        sleep_queue_tail = current_thread;
+    }
+
+    schedule();
+}
+
+
+//For threads who are blocked waiting for a keypress, put in input_queue
+int thread_get() {
+    current_thread->state = THREAD_WAITING_INPUT;
+    current_thread->next  = NULL;
+    if (input_queue == NULL) {
+        input_queue = current_thread;
+    } else {
+        input_queue_tail->next = current_thread;
+    }
+    input_queue_tail = current_thread;
+
+    schedule();
+
+    return current_thread->input_result;
+}
+
+
+void thread_exit() {
+    //TODO
+}
+
+// Allocates new semaphore. count has initial value (# of concurrent holders). waiters is queue of threads blocked waiting for sema
+struct sema *sema_create(unsigned int count) {
+    struct sema *s = malloc(sizeof(*s));
+    s->count   = count;
+    s->waiters = NULL;
+    return s;
+}
+
+// Note: doesn't call schedule() at end, because not blocking function 
+//(nobody needs to give up stuff or wait), just keeps going with moving waiter onto run queue.
+void sema_inc(struct sema *sema) {
+    //     Wake exactly one blocked thread, if any
+    // Otherwise increment the count
+    if (sema->waiters != NULL) {
+        struct thread *to_wake = sema->waiters;
+        sema->waiters = to_wake->next;
+        to_wake->next = NULL;
+        //move to runnable, not waiting on any semas.
+        to_wake->state = THREAD_RUNNABLE;
+        to_wake->waiting_on = NULL;
+        if (run_queue == NULL) {
+            run_queue = to_wake;
+        } else {
+            run_queue_tail->next = to_wake;
+        }
+        run_queue_tail = to_wake;
+    } else {
+        sema->count += 1;
+    }
+}
+
+
+void sema_dec(struct sema *sema) {
+    if (sema->count > 0) {
+        sema->count -= 1;
+        return;
+    }
+    //count is how many threads can proceed past this point simultaneously.
+    //This point -> 0 count. this thread is not allowed to proceed, so is blocked by this sema.
+
+    current_thread->state = THREAD_WAITING_SEMA;
+    current_thread->waiting_on = sema; // current calling thread is blocked by this sema.
+    current_thread->next = NULL;
+    if (sema->waiters == NULL) {
+        sema->waiters = current_thread;
+    } else {
+        struct thread *t = sema->waiters;
+        // iterate till tail of sema waiters and append.
+        while (t->next != NULL) t = t->next;
+        t->next = current_thread;
+    }
+    schedule();
+}
+
+//only release semaphore after all queues are done with it.
+void sema_release(struct sema *sema) {
+    free(sema);
+}
 
 
 void main(void)
