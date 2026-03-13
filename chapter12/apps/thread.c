@@ -44,6 +44,7 @@ struct thread *sleep_queue_tail;  // tail of sleep_queue
 struct thread *input_queue;       // list of THREAD_WAITING_INPUT threads
 struct thread *input_queue_tail;  // tail of input_queue
 struct thread *current_thread;    // the currently executing thread
+struct thread *graveyard; // thread waiting to be freed. only one thread can exit at a time.
 
 void thread_create(void (*f)(void *), void *arg, unsigned int stack_size) {
     //Step 1: Allocate a new TCB. I.e., make a thread struct tracking thread state.
@@ -78,6 +79,16 @@ void thread_create(void (*f)(void *), void *arg, unsigned int stack_size) {
 }
 
 static void schedule(void) {
+
+    //First step is because this is a running thread, to trash the graveyard (cannot free itself from the dead thread)
+    if (graveyard != NULL) {
+        //free stack and control block
+        free(graveyard->stack_base);
+        free(graveyard);
+        graveyard = NULL;
+    }
+
+
     // Check the sleep queue — iterate sleep_queue, call user_gettime(), and move any thread whose wake_time has passed back to run_queue.
     struct thread *prev = NULL;
     struct thread *sleeping = sleep_queue;
@@ -135,7 +146,13 @@ static void schedule(void) {
 
     // Dispatch: pop the head of run_queue and switch to it
     struct thread *to_run = run_queue;
-    if (to_run == NULL) return;
+    if (to_run == NULL) {
+        // Nothing runnable. If nothing is sleeping or waiting for input either, we're done.
+        if (sleep_queue == NULL && input_queue == NULL) {
+            user_exit();
+        }
+        return; // sleeping threads still pending; caller will re-invoke schedule()
+    }
 
     run_queue = to_run->next;
     if (run_queue == NULL) run_queue_tail = NULL;
@@ -161,7 +178,7 @@ static void schedule(void) {
 }
 
 
-
+//Misnomer -- initializes thread subsystem, not an actual thread.
 void thread_init() {
     run_queue        = NULL;
     run_queue_tail   = NULL;
@@ -170,8 +187,7 @@ void thread_init() {
     input_queue      = NULL;
     input_queue_tail = NULL;
     current_thread   = NULL;
-
-
+    graveyard = NULL;
 }
 
 // Current thread yields. Remove from runnable. schedule() called to decide who goes next (the new current_thread)
@@ -234,7 +250,11 @@ int thread_get() {
 
 
 void thread_exit() {
-    //TODO
+    //All the actual logic is cleaned up by a currently running thread, at the start of schedule.
+    graveyard = current_thread;
+    //The head of run queue gets ownership and cleans up.
+    schedule();
+
 }
 
 // Allocates new semaphore. count has initial value (# of concurrent holders). waiters is queue of threads blocked waiting for sema
@@ -264,6 +284,7 @@ void sema_inc(struct sema *sema) {
         }
         run_queue_tail = to_wake;
     } else {
+        //if there are no waiters, no one is currently blocked. Gives one more credit so that 1 person can access the lock. 
         sema->count += 1;
     }
 }
@@ -297,6 +318,18 @@ void sema_release(struct sema *sema) {
 }
 
 
+// Called by ctx_start when bootstrapping a new thread.
+// Runs the thread's function, then exits automatically.
+void exec_user(void) {
+    current_thread->func(current_thread->arg);
+    //after we've made it this far, no need to keep thread around -- it's done its purpose.
+    //Calls the thread's actual function, then calls exit after function returns. need to clear garbage.
+    thread_exit();
+}
+
+// just a stub, the main logic is in the game's main function.
 void main(void)
 {
+    thread_init();
+    thread_exit();
 }
