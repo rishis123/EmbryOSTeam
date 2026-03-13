@@ -168,7 +168,13 @@ static void schedule(void) {
         if (sleep_queue == NULL && input_queue == NULL) {
             user_exit();
         }
-        return; // sleeping threads still pending; caller will re-invoke schedule()
+        // Only sleeping threads remain — block until the earliest deadline,
+        // then loop back through schedule() to wake them.
+        if (sleep_queue != NULL) {
+            user_sleep(sleep_queue->wake_time);
+        }
+        schedule();
+        return;
     }
 
     run_queue = to_run->next;
@@ -232,7 +238,8 @@ void thread_yield() {
 // ns here is the deadline in nanoseconds since boot time, till which point the calling thread is suspended.
 void thread_sleep(uint64_t ns) {
     current_thread->state     = THREAD_SLEEPING;
-    current_thread->wake_time = user_gettime() + ns;
+    // avoid doublecount, seems to pass in user_gettime() in game.c anyway.
+    current_thread->wake_time = ns;
 
     // INVARIANT -> SLEEP QUEUE SORTED BY DEADLINE
     // Insert current_thread into sleep_queue sorted by wake_time
