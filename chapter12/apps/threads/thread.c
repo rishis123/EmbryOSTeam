@@ -1,8 +1,9 @@
-#include "syslib.h"
+#include "../syslib.h"
 #include "thread.h"
 // to access ctx start and switch.
 #include "../shared/ctx.h"
-#include <stddef.h> 
+#include <stdlib.h>
+#include "../malloc.h"
 
 
 // Contains possible states of thread.
@@ -185,7 +186,11 @@ static void schedule(void) {
     current_thread = to_run;
 
     // This actually starts or wakes back up the thread. Needs the old stack pointer and the new stack pointer.
-    if (to_run->started == 0) {
+    // If old == to_run we are already on this thread (e.g. the only thread got its own keypress back);
+    // skip the switch entirely so we don't restore from uninitialized stack memory.
+    if (old == to_run) {
+        return;
+    } else if (to_run->started == 0) {
         to_run->started = 1;
         // ctx_start saves old->sp (main TCB's sp is fine to clobber if it's exiting)
         ctx_start(&old->sp, to_run->sp);
@@ -367,9 +372,3 @@ void exec_user(void) {
     thread_exit();
 }
 
-// just a stub, the main logic is in the game's main function.
-void main(void)
-{
-    thread_init();
-    thread_exit();
-}
