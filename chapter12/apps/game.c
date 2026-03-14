@@ -1,6 +1,6 @@
 #include "syslib.h"
 #include "blockpixel.h"
-#include "threads/thread.h"
+#include "thread.h"
 
 #define WIDTH       39
 #define HEIGHT      20

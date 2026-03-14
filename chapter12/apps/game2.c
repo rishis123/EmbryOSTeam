@@ -1,6 +1,6 @@
 #include "syslib.h"
 #include "blockpixel.h"
-#include "threads/thread.h"
+#include "thread.h"
 
 #define WIDTH 39
 #define HEIGHT 20
@@ -19,7 +19,7 @@ struct pong
   struct bp bp;
   uint8_t bp_buffer[WIDTH * HEIGHT];
 };
-
+//Outputs score character-by-character
 void print_score(int x, int score)
 {
   if (score == 0)
@@ -34,7 +34,7 @@ void print_score(int x, int score)
     x--;
   }
 }
-
+//Uses block pixel to re-render, and call print_score logic.
 void pong_redraw(struct pong *pong)
 {
   for (int x = 0; x < WIDTH; x++)
@@ -49,7 +49,7 @@ void pong_redraw(struct pong *pong)
   print_score(WIDTH / 3, pong->computer);
   print_score(WIDTH * 2 / 3, pong->human);
 }
-
+// Event-driven threading logic. Sleep the thread (block) until you get a key to move paddle
 void paddle_thread(void *arg)
 {
   struct pong *pong = arg;
@@ -83,6 +83,8 @@ void paddle_thread(void *arg)
         delta = 1;
         break;
       }
+    //pong regains focus. breaks here only exit switch statement.
+    //Falls to line 95. if new_focus = 1, accordingly acquires mutex or not, so it has single control and updates the focus of this app and redraws
     case USER_GET_GOT_FOCUS:
       new_focus = 1;
       break;
@@ -90,6 +92,7 @@ void paddle_thread(void *arg)
       new_focus = 0;
       break;
     }
+    //new_focus is default of -1. if got or lost focus still need to redraw either way, just not if focus level is retained.
     if (delta != 0 || new_focus != -1)
     {
       sema_dec(pong->mutex);
@@ -101,7 +104,7 @@ void paddle_thread(void *arg)
     }
   }
 }
-
+//ball and pong threading logic each share same mutex, so won't render both at same time (race condition).
 void ball_thread(void *arg)
 {
   struct pong *pong = arg;
@@ -110,6 +113,7 @@ void ball_thread(void *arg)
   for (;;)
   {
     thread_sleep(user_gettime() + delay * 1000000ULL);
+    //this ball thread acquires the lock.
     sema_dec(pong->mutex);
     if (pong->y + 1 == PADDLE_POS &&
         pong->paddle - PADDLE_SIZE / 2 <= pong->x &&
@@ -150,6 +154,7 @@ void ball_thread(void *arg)
 
 void main()
 {
+  //the original thread.
   thread_init();
   struct pong pong;
 
@@ -163,7 +168,9 @@ void main()
   bp_init(&pong.bp, 0, 1, WIDTH, HEIGHT, pong.bp_buffer);
   pong_redraw(&pong);
 
+  //the original thread init creates ball nad paddle threads for runnable, then exits to kill itself.
   thread_create(ball_thread, &pong, 16 * 1024);
   thread_create(paddle_thread, &pong, 16 * 1024);
   thread_exit();
 }
+//Note expected behavior when tab hit (lost focus): count/score keeps changing, ball keeps falling, but user cannot control any movement of paddle and is blue.
