@@ -32,7 +32,10 @@ AI Statement:
 Used Claude Sonnet to develop pseudocode roadmap for how to implement functions. Used Claude Code to better understand what functions do, for some of the in line comments, and for code logic help, especially with schedule.
 
 
-
+Instructions on how to play the game:
+Catch balls falling from the top of the screen with your basket (represented as a bar) before they reach the bottom of the screen.
+Press 'a' on the keyboard to move your basket left and 'd' to move your basket right. If the ball lands into the basket, you get a
+point, otherwise the computer gets a point. Press 'q' to exit the game.
 
 
 
