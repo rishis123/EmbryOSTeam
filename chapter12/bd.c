@@ -12,10 +12,12 @@ union bd_free_block { union bd_free_block *next; struct block block; };
 
 //pointer to first free block. just use ->next to traverse.
 static union bd_free_block *bd_free_list;
+//actual memory supporting bd_alloc and bd_free's pointers. Allocate 16 struct blocks.
 static struct block bd_heap[MAX_HEAP];
+//zero init default block.
 const struct block bd_null_block;
 
-//
+//pops and returns first free block on free list, or process dies if none available.
 struct block *bd_alloc(void) {
     union bd_free_block *bf = bd_free_list;
     if (bf == 0) die("bd_alloc: out of blocks");
