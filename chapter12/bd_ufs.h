@@ -3,30 +3,8 @@
 #include "bd.h"
 #include <stdint.h>
 
-/*
- * Unix‑Like File System (UFS)
- *
- * This filesystem replaces bd_simple with a Unix‑style inode structure:
- *   - Superblock (block 0)
- *   - Inode blocks (fixed number)
- *   - Data blocks
- *   - Indirect blocks
- *   - Double‑indirect blocks
- *   - Free‑list blocks
- *
- * Each inode contains:
- *   [0] allocated flag
- *   [1] direct pointer
- *   [2] indirect pointer
- *   [3] double‑indirect pointer
- *
- * All pointers are 32‑bit block numbers (0 = hole).
- */
-
 #define UFS_PTRS_PER_BLOCK (BLOCK_SIZE / 4)
 #define UFS_INODES_PER_BLOCK (BLOCK_SIZE / (4 * sizeof(uint32_t)))
-
-// On‑disk structures
 
 // Superblock (block 0)
 struct ufs_superblock
