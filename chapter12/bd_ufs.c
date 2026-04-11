@@ -6,6 +6,7 @@
  * ufs alloc_block and free_block
  * ------------------------------ */
 
+// allocates a single block
 int ufs_alloc_block(struct ufs_state *s)
 {
   struct ufs_superblock sb;
@@ -34,6 +35,7 @@ int ufs_alloc_block(struct ufs_state *s)
   die("disk full"); // all free list blocks are full
 }
 
+// frees a single block with identifier b
 void ufs_free_block(struct ufs_state *s, int b)
 {
   if (b < 1 + s->n_inode_blocks)
@@ -83,34 +85,33 @@ void ufs_free_block(struct ufs_state *s, int b)
   s->lower->write(s->lower->state, s->inode_below, 0, &sb);
 }
 
-/* ------------------------------
- * bd interface: alloc/free
- * ------------------------------ */
+// bd interface methods
 
 int ufs_alloc(void *st)
 {
   struct ufs_state *s = st;
-  int ino = 0;
-  struct block b;
+  int inode = 0;
+  struct ufs_inode_block *b = (struct ufs_inode_block *)bd_alloc();
 
+  // loop through all inode blocks
   for (int blk = 1; blk < 1 + s->n_inode_blocks; blk++)
   {
-    s->lower->read(s->lower->state, s->inode_below, blk, &b);
-    struct ufs_inode *arr = (struct ufs_inode *)b.bytes;
+    s->lower->read(s->lower->state, s->inode_below, blk, b);
 
-    for (int i = 0; i < UFS_INODES_PER_BLOCK && ino < s->n_inodes; i++, ino++)
+    // loop through all inodes in the block, need to check if inode < n_inodes as may not be the case that every inode block is full
+    for (int i = 0; i < UFS_INODES_PER_BLOCK && inode < s->n_inodes; i++, inode++)
     {
-      if (!arr[i].allocated)
+      if (!(b->inode_block[i].allocated))
       {
-        memset(&arr[i], 0, sizeof arr[i]);
-        arr[i].allocated = 1;
-        s->lower->write(s->lower->state, s->inode_below, blk, &b);
-        return ino;
+        memset(&b->inode_block[i], 0, sizeof b->inode_block[i]); // zero out the inode
+        b->inode_block[i].allocated = 1;                         // now the inode is allocated
+        s->lower->write(s->lower->state, s->inode_below, blk, b);
+        return inode;
       }
     }
   }
 
-  return -1;
+  return 0;
 }
 
 void ufs_free(void *st, int inode)
@@ -118,43 +119,49 @@ void ufs_free(void *st, int inode)
   struct ufs_state *s = st;
 
   if (inode < 0 || inode >= s->n_inodes)
+  {
     return;
+  } // out of bounds
 
   int blk, idx;
   blk = 1 + (inode / UFS_INODES_PER_BLOCK);
   idx = inode % UFS_INODES_PER_BLOCK;
+  // get corresponding block and index in the block of the inode
 
-  struct block b;
-  s->lower->read(s->lower->state, s->inode_below, blk, &b);
-  struct ufs_inode *arr = (struct ufs_inode *)b.bytes;
+  struct ufs_inode_block *b = (struct ufs_inode_block *)bd_alloc();
+  s->lower->read(s->lower->state, s->inode_below, blk, b);
 
-  struct ufs_inode ino = arr[idx];
+  struct ufs_inode ino = b->inode_block[idx];
 
   if (!ino.allocated)
-    return;
-
-  int max_blocks = 1 + UFS_PTRS_PER_BLOCK + UFS_PTRS_PER_BLOCK * UFS_PTRS_PER_BLOCK;
-
-  for (int i = 0; i < max_blocks; i++)
   {
-    uint32_t bno = ufs_inode_get_block(s, &ino, i);
-    if (bno)
-      ufs_free_block(s, (int)bno);
+    return;
+  } // not allocated so we are already done
+
+  ino.allocated = 0; // set flag to unallocated
+
+  if (ino.direct != NULL)
+  {
+    ufs_free_block(s, (int)ino.direct);
   }
 
-  if (ino.indirect)
+  if (ino.indirect != NULL)
+  {
     ufs_free_block(s, (int)ino.indirect);
+  } // this needs to be fixed along with double indiret to properly access the arrays
 
-  if (ino.double_indirect)
+  if (ino.double_indirect != NULL)
+  {
     ufs_free_block(s, (int)ino.double_indirect);
+  }
 
-  memset(&arr[idx], 0, sizeof(struct ufs_inode));
   s->lower->write(s->lower->state, s->inode_below, blk, &b);
 }
 
 int ufs_size(void *st, int inode)
 {
   return 1 + UFS_PTRS_PER_BLOCK + UFS_PTRS_PER_BLOCK * UFS_PTRS_PER_BLOCK;
+  // 1 direct + (block size / 4 bytes per pointer) from indirect + (block size / 4 bytes per pointer) ** 2 from double-indirect
 }
 
 void ufs_read(void *st, int inode, int blk, void *dst)
@@ -166,7 +173,7 @@ void ufs_read(void *st, int inode, int blk, void *dst)
     die("simple_read: bad offset");
   } // out of bounds
 
-  // Read inode
+  // read inode
   int iblk = 1 + (inode / UFS_INODES_PER_BLOCK);
   int idx = inode % UFS_INODES_PER_BLOCK;
 
@@ -378,19 +385,19 @@ void ufs_init(struct bd *iface,
 
   int total_blocks = lower->size(lower->state, inode_below);
 
-  s->n_inode_blocks =
-      (n_inodes + UFS_INODES_PER_BLOCK - 1) / UFS_INODES_PER_BLOCK; // ceiling division so we allocate correct number
+  s->n_inode_blocks = (n_inodes + UFS_INODES_PER_BLOCK - 1) / UFS_INODES_PER_BLOCK;
+  // ceiling division so we allocate correct number of blocks
 
   if (1 + s->n_inode_blocks >= total_blocks)
-    s->n_inode_blocks = total_blocks > 1 ? total_blocks - 1 : 0; // to handle overflow
+    s->n_inode_blocks = total_blocks > 1 ? total_blocks - 1 : 0; // to handle overflow of inode blocks
 
   struct ufs_superblock sb;
   memset(&sb, 0, sizeof sb);
   sb.n_inode_blocks = (uint32_t)s->n_inode_blocks;
 
-  int first_data = 1 + s->n_inode_blocks;
+  int first_data_block = 1 + s->n_inode_blocks;
 
-  if (first_data >= total_blocks)
+  if (first_data_block >= total_blocks)
   {
     sb.free_list_head = 0;
     s->lower->write(s->lower->state, s->inode_below, 0, &sb);
@@ -400,7 +407,7 @@ void ufs_init(struct bd *iface,
   int current_fl_block = -1;
   int current_fl_index = 1;
 
-  for (int b = first_data; b < total_blocks; b++)
+  for (int b = first_data_block; b < total_blocks; b++)
   {
     if (current_fl_block == -1)
     {
@@ -431,7 +438,7 @@ void ufs_init(struct bd *iface,
   struct block zero;
   memset(&zero, 0, sizeof zero);
 
-  for (int blk = 1; blk < first_data; blk++)
+  for (int blk = 1; blk < first_data_block; blk++)
     s->lower->write(s->lower->state, s->inode_below, blk, &zero);
 
   iface->state = s;

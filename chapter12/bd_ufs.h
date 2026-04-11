@@ -3,15 +3,15 @@
 #include "bd.h"
 #include <stdint.h>
 
-#define UFS_PTRS_PER_BLOCK (BLOCK_SIZE / 4)
-#define UFS_INODES_PER_BLOCK (BLOCK_SIZE / (4 * sizeof(uint32_t)))
+#define UFS_PTRS_PER_BLOCK (BLOCK_SIZE / 4)                        // for pointer blocks in indirect/double indirect/free list
+#define UFS_INODES_PER_BLOCK (BLOCK_SIZE / (4 * sizeof(uint32_t))) // for inode blocks
 
 // Superblock (block 0)
 struct ufs_superblock
 {
   uint32_t n_inode_blocks;                  // number of inode blocks
   uint32_t free_list_head;                  // first free‑list block (0 = none)
-  uint32_t padding[UFS_PTRS_PER_BLOCK - 2]; // to fit superblock into size of one block
+  uint32_t padding[UFS_PTRS_PER_BLOCK - 2]; // to fit superblock into size of one inode block
 };
 
 // Inode (4 x 32‑bit words)
@@ -21,6 +21,11 @@ struct ufs_inode
   uint32_t direct;          // direct data block
   uint32_t indirect;        // indirect block
   uint32_t double_indirect; // double‑indirect block
+};
+
+struct ufs_inode_block
+{
+  struct ufs_inode inode_block[UFS_INODES_PER_BLOCK];
 };
 
 // Indirect, double‑indirect, and free‑list blocks format
