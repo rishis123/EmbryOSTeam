@@ -164,6 +164,11 @@ int ufs_size(void *st, int inode)
   // 1 direct + (block size / 4 bytes per pointer) from indirect + (block size / 4 bytes per pointer) ** 2 from double-indirect
 }
 
+
+// In effect, we check if the inode block is direct, indirect, or doubly-indirect (in terms of degrees of separation from data block). Then we read from it and copy into dst.
+// blk == 0 → direct (inode holds the block number itself)
+// 1 <= blk <= UFS_PTRS_PER_BLOCK → singly-indirect (inode → pointer block → data)
+// blk > UFS_PTRS_PER_BLOCK → doubly-indirect (inode → pointer block → pointer block → data)
 void ufs_read(void *st, int inode, int blk, void *dst)
 {
   struct ufs_state *s = st;
