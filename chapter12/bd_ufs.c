@@ -1,6 +1,4 @@
-#include "bd_ufs.h"
-#include <string.h>
-#include <stddef.h>
+#include "embryos.h"
 
 /* ------------------------------
  * ufs alloc_block and free_block
@@ -17,14 +15,14 @@ int ufs_alloc_block(struct ufs_state *s)
   struct ufs_ptr_block fb; // free list block struct
   s->lower->read(s->lower->state, s->inode_below, head, &fb);
 
-  while (head != NULL)
+  while (head != 0)
   {
     for (int i = 1; i < UFS_PTRS_PER_BLOCK; i++)
     {
-      if (fb.ptrs[i] != NULL) // found a free block somewhere in [1,N]
+      if (fb.ptrs[i] != 0) // found a free block somewhere in [1,N]
       {
         uint32_t b = fb.ptrs[i];
-        fb.ptrs[i] = NULL;
+        fb.ptrs[i] = 0;
         s->lower->write(s->lower->state, s->inode_below, head, &fb); // write updated fb back to lower
         return (int)b;
       }
@@ -33,6 +31,7 @@ int ufs_alloc_block(struct ufs_state *s)
   }
 
   die("disk full"); // all free list blocks are full
+  return -1;
 }
 
 // frees a single block with identifier b
@@ -46,11 +45,11 @@ void ufs_free_block(struct ufs_state *s, int b)
   struct ufs_superblock sb;
   s->lower->read(s->lower->state, s->inode_below, 0, &sb);
 
-  if (sb.free_list_head == NULL) // completely out of free list blocks so we turn the block b into a free list block
+  if (sb.free_list_head == 0) // completely out of free list blocks so we turn the block b into a free list block
   {
     struct ufs_ptr_block fb; // free list block to set to all zeros
     memset(&fb, 0, sizeof fb);
-    fb.ptrs[0] = NULL; // as next = NULL since only one free list block after this is done
+    fb.ptrs[0] = 0; // as next = 0 since only one free list block after this is done
     s->lower->write(s->lower->state, s->inode_below, b, &fb);
     sb.free_list_head = (uint32_t)b; // update value in superblock and write it down
     s->lower->write(s->lower->state, s->inode_below, 0, &sb);
@@ -62,11 +61,11 @@ void ufs_free_block(struct ufs_state *s, int b)
   struct ufs_ptr_block fb; // get the head free list block from lower
   s->lower->read(s->lower->state, s->inode_below, head, &fb);
 
-  while (head != NULL)
+  while (head != 0)
   {
     for (int i = 1; i < UFS_PTRS_PER_BLOCK; i++)
     {
-      if (fb.ptrs[i] == NULL)
+      if (fb.ptrs[i] == 0)
       {
         fb.ptrs[i] = (uint32_t)b;
         s->lower->write(s->lower->state, s->inode_below, head, &fb);
@@ -77,7 +76,6 @@ void ufs_free_block(struct ufs_state *s, int b)
   }
 
   // overflow case, make a completely new free list block and set it as the new head and connect to previous head
-  struct ufs_ptr_block fb;
   memset(&fb, 0, sizeof fb);
   fb.ptrs[0] = sb.free_list_head;
   s->lower->write(s->lower->state, s->inode_below, b, &fb);
@@ -140,22 +138,23 @@ void ufs_free(void *st, int inode)
 
   ino.allocated = 0; // set flag to unallocated
 
-  if (ino.direct != NULL)
+  if (ino.direct != 0)
   {
     ufs_free_block(s, (int)ino.direct);
   }
 
-  if (ino.indirect != NULL)
+  if (ino.indirect != 0)
   {
     ufs_free_block(s, (int)ino.indirect);
   } // this needs to be fixed along with double indiret to properly access the arrays
 
-  if (ino.double_indirect != NULL)
+  if (ino.double_indirect != 0)
   {
     ufs_free_block(s, (int)ino.double_indirect);
   }
 
-  s->lower->write(s->lower->state, s->inode_below, blk, &b);
+  b->inode_block[idx] = ino; // write the updated inode (allocated=0) back into the block buffer
+  s->lower->write(s->lower->state, s->inode_below, blk, b); // b is already a pointer; &b would write stack garbage
 }
 
 int ufs_size(void *st, int inode)

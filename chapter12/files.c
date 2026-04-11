@@ -7,6 +7,8 @@ struct bd ramdisk_iface;
 struct ramdisk_state ramdisk_state;
 struct bd simple_iface;
 struct simple_state simple_state;
+struct bd ufs_iface;
+struct ufs_state ufs_state;
 struct flat flat_fs;
 
 void files_init(void)
@@ -21,8 +23,15 @@ void files_init(void)
     simple_init(&simple_iface, &simple_state,
                 &ramdisk_iface, 0, 1);
 
+    // Add the UFS block device layer on top of simple
+    ufs_init(&ufs_iface, &ufs_state, &simple_iface, 0, 64);
+    // ufs_alloc starts numbering from inode 0, but flat_init requires
+    // its first alloc() call to return 1 (for the stat inode).
+    // Consume inode 0 here so the next alloc returns 1.
+    ufs_iface.alloc(ufs_iface.state);
+
     // Add and initialize the "flat file system"
-    flat_init(&flat_fs, &simple_iface, 1);
+    flat_init(&flat_fs, &ufs_iface, 1);
     if (flat_create(&flat_fs) != ROOT_DIR)
         die("files_init: root dir must be 1");
 

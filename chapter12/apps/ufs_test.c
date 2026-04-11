@@ -60,9 +60,13 @@ static void check(const char *name, int ok) {
 
 /* Write one block at blk_idx, read it back, verify all bytes equal v. */
 static void test_rw(int file, int blk_idx, char v, const char *name) {
+    // add v to the write buffer.
     fill(v);
+    //write v from write buffer into the block corresponding to blk_idx
     user_write(file, blk_idx * BLOCK_SIZE, write_buf, BLOCK_SIZE);
+    //read the char from the read buffer
     int n = user_read(file, blk_idx * BLOCK_SIZE, read_buf, BLOCK_SIZE);
+    //ensure we got back every byte, and read buffer all equal to v.
     check(name, n == BLOCK_SIZE && all_eq(v));
 }
 
