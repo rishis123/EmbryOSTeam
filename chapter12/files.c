@@ -5,8 +5,8 @@ extern struct block ramdisk[], __ramdisk_end[];
 
 struct bd ramdisk_iface;
 struct ramdisk_state ramdisk_state;
-struct bd simple_iface;
-struct simple_state simple_state;
+// struct bd simple_iface;
+// struct simple_state simple_state;
 struct bd ufs_iface;
 struct ufs_state ufs_state;
 struct flat flat_fs;
@@ -20,11 +20,11 @@ void files_init(void)
                  ramdisk, __ramdisk_end - ramdisk);
 
     // Add the "simple" block device layer
-    simple_init(&simple_iface, &simple_state,
-                &ramdisk_iface, 0, 1);
+    // simple_init(&simple_iface, &simple_state,
+    //             &ramdisk_iface, 0, 1);
 
-    // Add the UFS block device layer on top of simple
-    ufs_init(&ufs_iface, &ufs_state, &simple_iface, 0, 64);
+    // Add the UFS block device layer on top of ramdisk
+    ufs_init(&ufs_iface, &ufs_state, &ramdisk_iface, 0, 4);
     // ufs_alloc starts numbering from inode 0, but flat_init requires
     // its first alloc() call to return 1 (for the stat inode).
     // Consume inode 0 here so the next alloc returns 1.

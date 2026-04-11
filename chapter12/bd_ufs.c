@@ -156,7 +156,7 @@ void ufs_free(void *st, int inode)
     }
     // Finally free the indirect block itself
     ufs_free_block(s, (int)ino.indirect);
-    bd_free(ib);
+    bd_free((struct block *)ib);
   }
 
   if (ino.double_indirect != 0)
@@ -181,12 +181,12 @@ void ufs_free(void *st, int inode)
         }
         // Free the level-1 indirect block
         ufs_free_block(s, (int)dib->ptrs[i]);
-        bd_free(sib);
+        bd_free((struct block *)sib);
       }
     }
     // Finally free the double indirect block itself
     ufs_free_block(s, (int)ino.double_indirect);
-    bd_free(dib);
+    bd_free((struct block *)dib);
   }
   ino.allocated = 0;
   ino.direct = 0;
