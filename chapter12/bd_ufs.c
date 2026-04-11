@@ -56,7 +56,7 @@ void ufs_free_block(struct ufs_state *s, int b)
     return;
   }
 
-  struct ufs_ptr_block head; // get free list block from lower
+  struct ufs_ptr_block head; // get the head free list block from lower
   s->lower->read(s->lower->state, s->inode_below, sb.free_list_head, &head);
 
   for (int i = 1; i < UFS_PTRS_PER_BLOCK; i++)
@@ -65,10 +65,11 @@ void ufs_free_block(struct ufs_state *s, int b)
     {
       head.ptrs[i] = (uint32_t)b;
       s->lower->write(s->lower->state, s->inode_below, sb.free_list_head, &head);
-      return;
+      return; // done since we wrote the block b into an element of the head free list block array
     }
   }
 
+  // overflow case, make a new free list block as the new head
   struct ufs_ptr_block fb;
   memset(&fb, 0, sizeof fb);
   fb.ptrs[0] = sb.free_list_head;
