@@ -177,67 +177,98 @@ void ufs_read(void *st, int inode, int blk, void *dst)
   int iblk = 1 + (inode / UFS_INODES_PER_BLOCK);
   int idx = inode % UFS_INODES_PER_BLOCK;
 
+  // scratch buffer to hold the raw inode block read from disk
   struct block iblock;
+  // read the inode block containing our target inode from the lower layer
   s->lower->read(s->lower->state, s->inode_below, iblk, &iblock);
 
+  // reinterpret the raw block bytes as an array of inodes
   struct ufs_inode *arr = (struct ufs_inode *)iblock.bytes;
+  // extract the specific inode at position idx within the block
   struct ufs_inode ino = arr[idx];
 
+  // if the inode is not allocated, treat the read as a hole and return zeros
   if (!ino.allocated)
   {
+    // copy the global null block into dst to represent an unallocated (hole) read
     memcpy(dst, &bd_null_block, sizeof(struct block));
     return;
   }
 
   /* Resolve block number */
+  // will hold the physical block number on the lower device once resolved
   uint32_t bno = 0;
 
+  // block index 0 maps to the single direct pointer in the inode
   if (blk == 0)
   {
+    // direct block: read straight from the inode's direct pointer
     bno = ino.direct;
   }
   else
   {
+    // shift index down by 1 so bi=0 is the first indirect slot
     int bi = blk - 1;
 
+    // check if bi falls within the singly-indirect range
     if (bi < UFS_PTRS_PER_BLOCK)
     {
+      // only proceed if the indirect pointer block has been allocated
       if (ino.indirect)
       {
+        // scratch buffer for the indirect pointer block
         struct ufs_ptr_block ib;
+        // read the indirect pointer block from disk
         s->lower->read(s->lower->state, s->inode_below, ino.indirect, &ib);
+        // look up the physical block number at slot bi
         bno = ib.ptrs[bi];
       }
     }
     else
     {
+      // bi is beyond the indirect range; shift into the double-indirect space
       bi -= UFS_PTRS_PER_BLOCK;
 
+      // only proceed if the double-indirect pointer block has been allocated
       if (ino.double_indirect)
       {
+        // outer index selects which singly-indirect block within the double-indirect block
         int outer = bi / UFS_PTRS_PER_BLOCK;
+        // inner index selects the slot within that singly-indirect block
         int inner = bi % UFS_PTRS_PER_BLOCK;
 
+        // scratch buffer for the double-indirect pointer block
         struct ufs_ptr_block dib;
+        // read the double-indirect pointer block from disk
         s->lower->read(s->lower->state, s->inode_below, ino.double_indirect, &dib);
 
+        // fetch the physical block number of the relevant singly-indirect block
         uint32_t ind_blk = dib.ptrs[outer];
+        // only proceed if that singly-indirect block has been allocated (non-zero = not a hole)
         if (ind_blk)
         {
+          // scratch buffer for the singly-indirect pointer block
           struct ufs_ptr_block ib;
+          // read the singly-indirect pointer block from disk
           s->lower->read(s->lower->state, s->inode_below, ind_blk, &ib);
+          // look up the final physical block number at the inner slot
           bno = ib.ptrs[inner];
         }
       }
     }
   }
 
+
+  //dst is data for requested block ('where i put output'). if valid block number, we read in block into dst.
+  // if bno is still 0 the block was never written (hole): return zeros
   if (!bno)
   {
+    // copy the global null block into dst to represent the hole
     memcpy(dst, &bd_null_block, sizeof(struct block));
   }
   else
   {
+    // bno is valid: read the actual data block from the lower layer into dst
     s->lower->read(s->lower->state, s->inode_below, bno, dst);
   }
 }
