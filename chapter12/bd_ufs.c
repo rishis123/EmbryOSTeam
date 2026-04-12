@@ -31,6 +31,8 @@ int ufs_alloc_block(struct ufs_state *s)
         uint32_t b = fb->ptrs[i];
         fb->ptrs[i] = 0;
         s->lower->write(s->lower->state, s->inode_below, head, fb);
+
+        s->lower->write(s->lower->state, s->inode_below, b, &bd_null_block); // zero out the block b
         bd_free((struct block *)sb);
         bd_free((struct block *)fb);
         return (int)b;
@@ -38,6 +40,7 @@ int ufs_alloc_block(struct ufs_state *s)
     }
     head = fb->ptrs[0];
   }
+
   bd_free((struct block *)sb);
   bd_free((struct block *)fb);
 
@@ -77,7 +80,6 @@ void ufs_free_block(struct ufs_state *s, int b)
   while (head != 0)
   {
     s->lower->read(s->lower->state, s->inode_below, head, fb);
-    kprintf("alloc_block: head=%d\n", head);
     for (int i = 1; i < UFS_PTRS_PER_BLOCK; i++)
     {
       if (fb->ptrs[i] == 0)
@@ -146,9 +148,8 @@ void ufs_free(void *st, int inode)
     return;
   } // out of bounds
 
-  int blk, idx;
-  blk = 1 + (inode / UFS_INODES_PER_BLOCK);
-  idx = inode % UFS_INODES_PER_BLOCK;
+  int blk = 1 + (inode / UFS_INODES_PER_BLOCK);
+  int idx = inode % UFS_INODES_PER_BLOCK;
   // get corresponding block and index in the block of the inode
 
   struct ufs_inode_block *b = (struct ufs_inode_block *)bd_alloc();
@@ -160,7 +161,7 @@ void ufs_free(void *st, int inode)
   {
     bd_free((struct block *)b);
     return;
-  } // not allocated so we are already done, or should we call bd_free?
+  } // not allocated so we are already done
 
   if (ino.direct != 0)
   {
@@ -194,7 +195,7 @@ void ufs_free(void *st, int inode)
     {
       if (dib->ptrs[i] != 0)
       {
-        // Read the level-1 indirect block
+        // Read the indirect block
         struct ufs_ptr_block *sib = (struct ufs_ptr_block *)bd_alloc();
         s->lower->read(s->lower->state, s->inode_below, dib->ptrs[i], sib);
 
@@ -205,12 +206,12 @@ void ufs_free(void *st, int inode)
             ufs_free_block(s, (int)sib->ptrs[j]);
           }
         }
-        // Free the level-1 indirect block
+        // Free the indirect block
         ufs_free_block(s, (int)dib->ptrs[i]);
         bd_free((struct block *)sib);
       }
     }
-    // Finally free the double indirect block itself
+    // free the double indirect block itself
     ufs_free_block(s, (int)ino.double_indirect);
     bd_free((struct block *)dib);
   }
@@ -219,15 +220,15 @@ void ufs_free(void *st, int inode)
   ino.indirect = 0;
   ino.double_indirect = 0;
 
-  b->inode_block[idx] = ino;                                // write the updated inode (allocated=0) back into the block buffer
-  s->lower->write(s->lower->state, s->inode_below, blk, b); // b is already a pointer; &b would write stack garbage
-  bd_free((struct block *)b);                               // free inode block
+  b->inode_block[idx] = ino; // write the updated inode (allocated=0) back into the block buffer
+  s->lower->write(s->lower->state, s->inode_below, blk, b);
+  bd_free((struct block *)b); // free inode block
 }
 
 int ufs_size(void *st, int inode)
 {
   return 1 + UFS_PTRS_PER_BLOCK + UFS_PTRS_PER_BLOCK * UFS_PTRS_PER_BLOCK;
-  // 1 direct + (block size / 4 bytes per pointer) from indirect + (block size / 4 bytes per pointer) ** 2 from double-indirect
+  // 1 direct + (block size / 4 bytes per pointer) from indirect + (block size / 4 bytes per pointer) ^ 2 from double-indirect
 }
 
 // In effect, we check if the inode block is direct, indirect, or doubly-indirect (in terms of degrees of separation from data block). Then we read from it and copy into dst.
@@ -243,11 +244,11 @@ void ufs_read(void *st, int inode, int blk, void *dst)
     die("simple_read: bad offset");
   } // out of bounds
 
-  // read inode
+  // read inode block and idx
   int iblk = 1 + (inode / UFS_INODES_PER_BLOCK);
   int idx = inode % UFS_INODES_PER_BLOCK;
 
-  // scratch buffer to hold the raw inode block read from disk
+  // buffer to hold the raw inode block read from disk
   struct ufs_inode_block *iblock = (struct ufs_inode_block *)bd_alloc();
   // read the inode block containing our target inode from the lower layer
   s->lower->read(s->lower->state, s->inode_below, iblk, iblock);
@@ -258,13 +259,12 @@ void ufs_read(void *st, int inode, int blk, void *dst)
   // if the inode is not allocated, treat the read as a hole and return zeros
   if (!ino.allocated)
   {
-    // copy the global null block into dst to represent an unallocated (hole) read
-    memcpy(dst, &bd_null_block, sizeof(struct block));
+    memset(dst, 0, BLOCK_SIZE);
     bd_free((struct block *)iblock);
     return;
   }
 
-  // variable for block number, will hold the physical block number on the lower device once resolved
+  // variable for block number, will eventually hold the physical block number on the lower device
   uint32_t bno = 0;
 
   // scratch buffer for the indirect pointer block
@@ -297,18 +297,18 @@ void ufs_read(void *st, int inode, int blk, void *dst)
     }
     else
     {
-      // bi is beyond the indirect range; shift into the double-indirect space
+      // bi is beyond the indirect range; shift into double-indirect range
       bi -= UFS_PTRS_PER_BLOCK;
 
       // only proceed if the double-indirect pointer block has been allocated
       if (ino.double_indirect)
       {
-        // outer index selects which singly-indirect block within the double-indirect block
+        // outer selects which singly-indirect block within the double-indirect block
         int outer = bi / UFS_PTRS_PER_BLOCK;
-        // inner index selects the slot within that singly-indirect block
+        // inner selects the slot within that singly-indirect block
         int inner = bi % UFS_PTRS_PER_BLOCK;
 
-        // read the double-indirect pointer block from disk
+        // read the double-indirect pointer block
         s->lower->read(s->lower->state, s->inode_below, ino.double_indirect, dib);
 
         // fetch the physical block number of the relevant singly-indirect block
@@ -325,12 +325,11 @@ void ufs_read(void *st, int inode, int blk, void *dst)
     }
   }
 
-  // dst is data for requested block ('where i put output'). if valid block number, we read in block into dst.
-  //  if bno is still 0 the block was never written (hole): return zeros
+  // dst is where to put the output for requested block, if valid block number, we read in block into dst.
+  //  if bno is still 0 the block was never written, i.e. hole, so return zeros
   if (!bno)
   {
-    // copy the global null block into dst to represent the hole
-    memcpy(dst, &bd_null_block, sizeof(struct block));
+    memset(dst, 0, BLOCK_SIZE);
   }
   else
   {
@@ -352,7 +351,7 @@ void ufs_write(void *st, int inode, int blk, const void *src)
     return;
   }
 
-  /* Read inode */
+  // get block and idx of inode
   int iblk = 1 + (inode / UFS_INODES_PER_BLOCK);
   int idx = inode % UFS_INODES_PER_BLOCK;
 
@@ -370,7 +369,6 @@ void ufs_write(void *st, int inode, int blk, const void *src)
     return;
   }
 
-  /* Allocate or resolve block */
   uint32_t bno = 0;
   // scratch buffer for the indirect pointer block
   struct ufs_ptr_block *ib = (struct ufs_ptr_block *)bd_alloc();
@@ -496,26 +494,20 @@ void ufs_write(void *st, int inode, int blk, const void *src)
     }
   }
 
-  /* Persist updated inode */
+  // write updated inode to lower layer
   iblock->inode_block[idx] = ino;
   s->lower->write(s->lower->state, s->inode_below, iblk, iblock);
 
-  /* Write data block */
+  // write the data block
   s->lower->write(s->lower->state, s->inode_below, bno, src);
   bd_free((struct block *)ib);
   bd_free((struct block *)dib);
   bd_free((struct block *)iblock);
 }
 
-/* ------------------------------
- * Initialization
- * ------------------------------ */
+// init
 
-void ufs_init(struct bd *iface,
-              struct ufs_state *s,
-              struct bd *lower,
-              int inode_below,
-              int n_inodes)
+void ufs_init(struct bd *iface, struct ufs_state *s, struct bd *lower, int inode_below, int n_inodes)
 {
   s->lower = lower;
   s->inode_below = inode_below;
@@ -549,7 +541,7 @@ void ufs_init(struct bd *iface,
   for (int b = first_data_block; b < total_blocks; b++)
   {
     struct ufs_ptr_block *fb = (struct ufs_ptr_block *)bd_alloc();
-    if (current_fl_block == -1) // first block
+    if (current_fl_block == -1) // create first free list block
     {
       current_fl_block = b;
       current_fl_index = 1;
@@ -560,7 +552,7 @@ void ufs_init(struct bd *iface,
 
       sb->free_list_head = (uint32_t)current_fl_block;
     }
-    else
+    else // adding blocks to the free list block
     {
       s->lower->read(s->lower->state, s->inode_below, current_fl_block, fb);
       fb->ptrs[current_fl_index++] = (uint32_t)b;
@@ -572,14 +564,15 @@ void ufs_init(struct bd *iface,
     bd_free((struct block *)fb);
   }
 
-  s->lower->write(s->lower->state, s->inode_below, 0, sb); // write superblock
+  s->lower->write(s->lower->state, s->inode_below, 0, sb); // write the superblock
 
   struct block *zero = bd_alloc();
-  memset(zero, 0, sizeof *zero);
+  memset(zero, 0, BLOCK_SIZE);
 
   for (int blk = 1; blk < first_data_block; blk++)
-    s->lower->write(s->lower->state, s->inode_below, blk, zero); // inode blocks?
-
+  {
+    s->lower->write(s->lower->state, s->inode_below, blk, zero); // zero out all inode blocks for safety
+  }
   iface->state = s;
   iface->alloc = ufs_alloc;
   iface->free = ufs_free;
