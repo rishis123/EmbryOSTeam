@@ -316,6 +316,7 @@ void ufs_read(void *st, int inode, int blk, void *dst)
   }
 }
 
+//Very similar to ufs_read logically (check direct/indirect/double indirect), but allocates block using ufs_allocate_block, zero intiializes and persists using block device write function (lower->write.)
 void ufs_write(void *st, int inode, int blk, const void *src)
 {
   struct ufs_state *s = st;
