@@ -17,17 +17,18 @@ int ufs_alloc_block(struct ufs_state *s)
 
   while (head != 0)
   {
-    for (int i = 1; i < UFS_PTRS_PER_BLOCK; i++)
-    {
-      if (fb.ptrs[i] != 0) // found a free block somewhere in [1,N]
+      s->lower->read(s->lower->state, s->inode_below, head, &fb);  // reload every iteration
+      for (int i = 1; i < UFS_PTRS_PER_BLOCK; i++)
       {
-        uint32_t b = fb.ptrs[i];
-        fb.ptrs[i] = 0;
-        s->lower->write(s->lower->state, s->inode_below, head, &fb); // write updated fb back to lower
-        return (int)b;
+          if (fb.ptrs[i] != 0)
+          {
+              uint32_t b = fb.ptrs[i];
+              fb.ptrs[i] = 0;
+              s->lower->write(s->lower->state, s->inode_below, head, &fb);
+              return (int)b;
+          }
       }
-    }
-    head = fb.ptrs[0];
+      head = fb.ptrs[0];
   }
 
   die("disk full"); // all free list blocks are full
@@ -63,6 +64,7 @@ void ufs_free_block(struct ufs_state *s, int b)
 
   while (head != 0)
   {
+    kprintf("alloc_block: head=%d\n", head);
     for (int i = 1; i < UFS_PTRS_PER_BLOCK; i++)
     {
       if (fb.ptrs[i] == 0)
@@ -87,29 +89,33 @@ void ufs_free_block(struct ufs_state *s, int b)
 
 int ufs_alloc(void *st)
 {
-  struct ufs_state *s = st;
-  int inode = 0;
-  struct ufs_inode_block *b = (struct ufs_inode_block *)bd_alloc();
+    struct ufs_state *s = st;
+    struct ufs_inode_block *b = (struct ufs_inode_block *)bd_alloc();
 
-  // loop through all inode blocks
-  for (int blk = 1; blk < 1 + s->n_inode_blocks; blk++)
-  {
-    s->lower->read(s->lower->state, s->inode_below, blk, b);
-
-    // loop through all inodes in the block, need to check if inode < n_inodes as may not be the case that every inode block is full
-    for (int i = 0; i < UFS_INODES_PER_BLOCK && inode < s->n_inodes; i++, inode++)
+    for (int blk = 1; blk < 1 + s->n_inode_blocks; blk++)
     {
-      if (!(b->inode_block[i].allocated))
-      {
-        memset(&b->inode_block[i], 0, sizeof b->inode_block[i]); // zero out the inode
-        b->inode_block[i].allocated = 1;                         // now the inode is allocated
-        s->lower->write(s->lower->state, s->inode_below, blk, b);
-        return inode;
-      }
+        s->lower->read(s->lower->state, s->inode_below, blk, b);
+
+        for (int i = 0; i < UFS_INODES_PER_BLOCK; i++)
+        {
+            int inode = (blk - 1) * UFS_INODES_PER_BLOCK + i;
+
+            if (inode == 0) continue;  // reserve inode 0 as invalid
+            if (inode >= s->n_inodes) goto done;
+
+            if (!(b->inode_block[i].allocated))
+            {
+                memset(&b->inode_block[i], 0, sizeof b->inode_block[i]);
+                b->inode_block[i].allocated = 1;
+                s->lower->write(s->lower->state, s->inode_below, blk, b);
+                bd_free((struct block *)b);
+                return inode;
+            }
+        }
     }
-  }
-  bd_free((struct block *)b);
-  return -1;
+done:
+    bd_free((struct block *)b);
+    return -1;
 }
 
 void ufs_free(void *st, int inode)
@@ -133,6 +139,7 @@ void ufs_free(void *st, int inode)
 
   if (!ino.allocated)
   {
+    bd_free((struct block *)b);  
     return;
   } // not allocated so we are already done, or should we call bd_free?
 
