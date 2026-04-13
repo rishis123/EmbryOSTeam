@@ -49,7 +49,10 @@ void embryos_main(uword_t hartid, void *fdt) {
     L1(L_BASE, L_TIME_BASE, time_base);
 
     struct pcb *self = proc_create(&harts[0], -1, (struct rect){ 0, 0, 80, 24 }, 0, 0);
-    hart_init(hartid, self); files_init();
+    hart_init(hartid, self);
+    kprintf("hart done\n");
+    files_init();
+    kprintf("files_init done\n");
     if (fdt != 0) hart_start_others(fdt);
 
     screen_fill(0, 0, SCREEN_COLS, SCREEN_ROWS,

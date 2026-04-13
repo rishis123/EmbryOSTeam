@@ -15,6 +15,7 @@
 #include "bd.h"
 #include "bd_ramdisk.h"
 #include "bd_simple.h"
+#include "bd_ufs.h"
 #include "stat.h"
 #include "files.h"
 #include "flat.h"
