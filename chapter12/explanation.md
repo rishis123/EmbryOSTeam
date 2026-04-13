@@ -1,3 +1,6 @@
+FOR FILE SYSTEM ASSIGNMENT.
+
+
 * Superblock layout
 The superblock is in block 0. The superblock struct has the same (byte) size as a normal block, which is 2048 bytes. The superblock has a uint32_t variable for the number of inode blocks and a uint32_t variable storing a pointer to the first free-list block. So that the superblock has a size of 2048 bytes, the rest of the superblock is an array of uint32_t variables (called padding) to pad the struct to the correct size of 2048 bytes, which is (BLOCK_SIZE / 4) - 2, as a uint32_t has a size of 4 bytes.
 * i-Node structure 
@@ -9,4 +12,4 @@ As mentioned above, the superblock has a pointer to the head of the free-list bl
 * How holes are represented and handled
 A hole is represented as a null pointer, i.e. if the direct field of an inode is zero, then block 0 of that inode is a hole. If we are reading and detect a hole at any level, we stop and set the destination block to all zeros. When writing, if we detect a hole at any level, i.e. at the double-indirect or indirect level, we first allocate another block to plug the hole so that we do not lose the block we allocate if we attempt to read it later, as otherwise we would still encounter a null pointer when trying to read from that block.
 * How you used AI, if at all
-We used Claude Code for code comprehension, completion, and comments. We used Gemini for identifying and fixing corner cases, and for debugging and checking for memory leaks when using bd_alloc.
+We used Claude Code for code comprehension, completion, and comments, as well as for generating a test suite in apps (ufs_test). We used Gemini for identifying and fixing corner cases, and for debugging and checking for memory leaks when using bd_alloc.
