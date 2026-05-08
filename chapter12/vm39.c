@@ -10,6 +10,9 @@ enum { V, R, W, X, U, G, A, D };
 
 #if VBITS == 39
 
+// Extracts VPN[1] from [29:21]. Extracts VPN[0] from [20:12]. 
+// If vbit of idx1 is 0, then page is unused. memsets new empty non-leaf page L2.
+// Writes leaf PTE into l2[idx0] that user mode can touch (U).
 void vm_map(void *base, uintptr_t va, void *frame) {
     uword_t *l1 = base;
     int idx1 = (va >> 21) & (PTE_COUNT - 1);
@@ -25,6 +28,7 @@ void vm_map(void *base, uintptr_t va, void *frame) {
     l2[idx0] = PT_ENTRY((uintptr_t) frame, RWX|PTE(U));
 }
 
+// Same traversal, but ultimately checks if L2 table exists, and if so check if L2 table has actually been mapped
 int vm_is_mapped(void *base, uintptr_t va) {
     uword_t *l1 = base;
     int idx1 = (va >> 21) & (PTE_COUNT - 1);
@@ -38,7 +42,8 @@ void vm_flush(struct hart *hart, void *base) {
     hart->root_page_table[VM_START >> 30] = PT_ENTRY((uintptr_t) base, PTE(V));
     tlb_flush();
 }
-
+// Walk whole tree, gives every allocated frame back. For each of 512 slots in base, walk L2 it points to. 
+// Free each valid leaf's physical frame then L2 page table itself.
 void vm_release(void *base) {
     uword_t *l1 = base;
     for (int i = 0; i < PTE_COUNT; i++) {
@@ -53,6 +58,7 @@ void vm_release(void *base) {
         frame_release(l2);
     }
 }
+// process frees base (pointer to 4KB page where each entry is PTE either to nothing or to a L2 page table) afterwards in process.c
 
 // Already correct -- already has two levels 
 // a root_pt (L1) that maps 1GB chunks, and parent_page_table (L2) for the VM_START region
