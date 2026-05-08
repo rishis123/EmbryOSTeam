@@ -8,6 +8,7 @@ struct hart {
     unsigned int idx;                // index 0, 1, 2, ...
     uword_t id;                      // actual hart id
     uword_t *parent_page_table;      // see vm*.c
+    uword_t *root_page_table;  //for hart to remember, where is my L1 table?
     int needs_tlb_flush;             // non-zero if TLB flush needed
     int interrupts_work;             // non-zero if supports (timer) interrupts
 };

@@ -11,36 +11,56 @@ enum { V, R, W, X, U, G, A, D };
 #if VBITS == 39
 
 void vm_map(void *base, uintptr_t va, void *frame) {
-    uword_t *pt = base;
-    int index = (va >> 12) & (PTE_COUNT - 1);
-    pt[index] = PT_ENTRY((uintptr_t) frame, RWX|PTE(U));
+    uword_t *l1 = base;
+    int idx1 = (va >> 21) & (PTE_COUNT - 1);
+    uword_t *l2;
+    if (!(l1[idx1] & PTE(V))) {
+        l2 = frame_alloc();
+        memset(l2, 0, PAGE_SIZE);
+        l1[idx1] = PT_ENTRY((uintptr_t) l2, PTE(V));
+    } else {
+        l2 = (uword_t *)((uintptr_t)(l1[idx1] >> 10) << 12);
+    }
+    int idx0 = (va >> 12) & (PTE_COUNT - 1);
+    l2[idx0] = PT_ENTRY((uintptr_t) frame, RWX|PTE(U));
 }
 
 int vm_is_mapped(void *base, uintptr_t va) {
-    uword_t *pt = base;
-    int index = (va >> 12) & (PTE_COUNT - 1);
-    return pt[index] & PTE(V);
+    uword_t *l1 = base;
+    int idx1 = (va >> 21) & (PTE_COUNT - 1);
+    if (!(l1[idx1] & PTE(V))) return 0;
+    uword_t *l2 = (uword_t *)((uintptr_t)(l1[idx1] >> 10) << 12);
+    int idx0 = (va >> 12) & (PTE_COUNT - 1);
+    return l2[idx0] & PTE(V);
 }
 
 void vm_flush(struct hart *hart, void *base) {
-    const int index = (VM_START >> 21) & (PTE_COUNT - 1);  // 12 + 9
-    hart->parent_page_table[index] = PT_ENTRY((uintptr_t) base, PTE(V));
+    hart->root_page_table[VM_START >> 30] = PT_ENTRY((uintptr_t) base, PTE(V));
     tlb_flush();
 }
 
 void vm_release(void *base) {
-    uword_t *pt = base;
+    uword_t *l1 = base;
     for (int i = 0; i < PTE_COUNT; i++) {
-        uword_t pte = pt[i];
-        if (pte & PTE(V)) frame_release((void *)((uintptr_t)(pte >> 10) << 12));
+        uword_t pte = l1[i];
+        if (!(pte & PTE(V))) continue;
+        uword_t *l2 = (uword_t *)((uintptr_t)(pte >> 10) << 12);
+        for (int j = 0; j < PTE_COUNT; j++) {
+            uword_t leaf = l2[j];
+            if (leaf & PTE(V))
+                frame_release((void *)((uintptr_t)(leaf >> 10) << 12));
+        }
+        frame_release(l2);
     }
 }
 
+// Already correct -- already has two levels 
+// a root_pt (L1) that maps 1GB chunks, and parent_page_table (L2) for the VM_START region
 void vm_init(struct hart *hart) {
     uword_t *root_pt = frame_alloc();
+    hart->root_page_table = root_pt; 
     hart->parent_page_table = frame_alloc();
     memset(hart->parent_page_table, 0, PAGE_SIZE);
-
     // First map everything 1-1
     for (int i = 0; i < PTE_COUNT; i++)
         root_pt[i] = PT_ENTRY(i * 0x40000000ULL, RWX|PTE(G));
